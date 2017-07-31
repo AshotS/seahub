@@ -176,7 +176,7 @@ def check_parameter(func):
             error_msg = "End time can not be empty"
             return api_error(status.HTTP_400_BAD_REQUEST, error_msg)
         if group_by.lower() not in ["hour", "day"]:
-            error_msg = "Record can only group by day or hour"
+            error_msg = "Records can only group by day or hour"
             return api_error(status.HTTP_400_BAD_REQUEST, error_msg)
         try:
             start_time = datetime.datetime.strptime(start_time,
@@ -195,7 +195,7 @@ def check_parameter(func):
     return _decorated
 
 
-def get_data_by_hour_or_day_by_hour_or_day(parameter, func, func_by_day):
+def get_data_by_hour_or_day(parameter, func, func_by_day):
     if parameter == "hour":
         data = func(start_time, end_time)
     elif parameter == "day":
@@ -205,7 +205,7 @@ def get_data_by_hour_or_day_by_hour_or_day(parameter, func, func_by_day):
 
 class FileOperationsView(APIView):
     """
-    The  File Operations Record .
+    Get file operations statistics.
         Permission checking:
         1. only admin can perform this action.
     """
@@ -216,15 +216,15 @@ class FileOperationsView(APIView):
     @check_parameter
     def get(self, request, start_time, end_time, group_by):
         """
-        Get a record of the specifiy time
+        Get records of the specified time range.
             param:
                 start: the start time of the query.
                 end: the end time of the query.
-                group_by:decide the record group by day or hour,default group by hour.
+                group_by: group records by day or by hour, default group by hour.
             return:
                 the list of file operations record.
         """
-        data = get_data_by_hour_or_day_by_hour_or_day(group_by, get_file_audit_stats, get_file_audit_stats_by_day)
+        data = get_data_by_hour_or_day(group_by, get_file_audit_stats, get_file_audit_stats_by_day)
         if data is None:
             error_msg = "unsupported service"
             return api_error(status.HTTP_503_SERVICE_UNAVAILABLE, error_msg)
@@ -257,7 +257,7 @@ class TotalStorageView(APIView):
 
     @check_parameter
     def get(self, request, start_time, end_time, group_by):
-        data = get_data_by_hour_or_day_by_hour_or_day(group_by, get_total_storage_stats, get_total_storage_stats_by_day)
+        data = get_data_by_hour_or_day(group_by, get_total_storage_stats, get_total_storage_stats_by_day)
         if data is None:
             error_msg = "unsupported service"
             return api_error(status.HTTP_503_SERVICE_UNAVAILABLE, error_msg)
@@ -281,7 +281,7 @@ class ActiveUsersView(APIView):
 
     @check_parameter
     def get(self, request, start_time, end_time, group_by):
-        data = get_data_by_hour_or_day_by_hour_or_day(group_by, get_user_activity_stats, get_user_activity_stats_by_day)
+        data = get_data_by_hour_or_day(group_by, get_user_activity_stats, get_user_activity_stats_by_day)
         if data is None:
             error_msg = "unsupported service"
             return api_error(status.HTTP_503_SERVICE_UNAVAILABLE, error_msg)
