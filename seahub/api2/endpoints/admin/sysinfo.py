@@ -229,6 +229,16 @@ class FileOperationsView(APIView):
             error_msg = "unsupported service"
             return api_error(status.HTTP_503_SERVICE_UNAVAILABLE, error_msg)
 
+        # save time to dict key, and save data to dict key  
+        # e.g.
+        # data = [(datetime.datetime(2017, 5, 16, 13, 0), u'Added', 1L),
+        #        (datetime.datetime(2017, 5, 16, 13, 0), u'Visited', 113L),
+        #        (datetime.datetime(2017, 5, 16, 13, 0), u'Delete', 113L)]
+        # dict_data = {(datetime.datetime(2017, 5, 16, 13, 0)): {'added': 1L, 'Visited': 113L, 'Delete': 113L}}
+        # and then combined into api desired data
+        # e.g
+        # dict_data -> {"datetime": datetime.datetime(2017, 5, 16, 13, 0), 'added': 1L, 'visited': 133L, 'deleted': 113L}
+        # then sort dict_data,
         res_data = []
         dict_data = {}
         for i in data:
