@@ -20,6 +20,7 @@ from seahub.api2.throttling import UserRateThrottle
 from seahub.api2.utils import api_error
 from seahub.base.templatetags.seahub_tags import email2nickname
 from seahub.base.accounts import User
+from seahub.base.share_permission.models import SharePermission
 from seahub.share.signals import share_repo_to_user_successful, \
     share_repo_to_group_successful
 from seahub.utils import (is_org_context, is_valid_username,
@@ -55,15 +56,20 @@ class DirSharedItemsEndpoint(APIView):
                 share_items = seafile_api.get_shared_users_for_subdir(repo_id,
                                                                       path, username)
         ret = []
+        admin_user_list = SharePermission.objects.get_admin_users_by_owner(repo_id, username)
         for item in share_items:
-            ret.append({
+            data = {
                 "share_type": "user",
                 "user_info": {
                     "name": item.user,
                     "nickname": email2nickname(item.user),
-                },
-                "permission": item.perm,
-            })
+                }
+            }
+            if item.user in admin_user_list:
+                data['permission'] = 'admin'
+            else:
+                data['permission'] = item.perm,
+            ret.append(data)
         return ret
 
     def list_group_shared_items(self, request, repo_id, path):
@@ -176,11 +182,8 @@ class DirSharedItemsEndpoint(APIView):
         if seafile_api.get_dir_id_by_path(repo.id, path) is None:
             return api_error(status.HTTP_404_NOT_FOUND, 'Folder %s not found.' % path)
 
-        if username != self.get_repo_owner(request, repo_id):
-            return api_error(status.HTTP_403_FORBIDDEN, 'Permission denied.')
-
         permission = request.data.get('permission', 'r')
-        if permission not in ['r', 'rw']:
+        if permission not in ['r', 'rw', 'admin']:
             return api_error(status.HTTP_400_BAD_REQUEST, 'permission invalid.')
 
         shared_to_user, shared_to_group = self.handle_shared_to_args(request)
@@ -189,10 +192,28 @@ class DirSharedItemsEndpoint(APIView):
             if shared_to is None or not is_valid_username(shared_to):
                 return api_error(status.HTTP_400_BAD_REQUEST, 'Email %s invalid.' % shared_to)
 
+            if username != self.get_repo_owner(request, repo_id) and \
+               username not in SharePermission.objects.get_share_records(repo_id, username, shared_to):
+                return api_error(status.HTTP_403_FORBIDDEN, 'Permission denied.')
+        else:
+            if username != self.get_repo_owner(request, repo_id):
+                return api_error(status.HTTP_403_FORBIDDEN, 'Permission denied.')
+
+        if shared_to_user:
             try:
                 User.objects.get(email=shared_to)
             except User.DoesNotExist:
                 return api_error(status.HTTP_400_BAD_REQUEST, 'Invalid user, should be registered')
+
+            if path == '/':
+                SharePermission.objects.update_share_permission(repo_id, 
+                                                                username, 
+                                                                shared_to, 
+                                                                permission)
+            is_admin = False
+            if permission == 'admin':
+                permission = 'rw'
+                is_admin = True
 
             if is_org_context(request):
                 org_id = request.user.org.org_id
@@ -254,7 +275,8 @@ class DirSharedItemsEndpoint(APIView):
         if seafile_api.get_dir_id_by_path(repo.id, path) is None:
             return api_error(status.HTTP_404_NOT_FOUND, 'Folder %s not found.' % path)
 
-        if username != self.get_repo_owner(request, repo_id):
+        if username != self.get_repo_owner(request, repo_id) and \
+           SharePermission.objects.is_admin_users(repo_id, username):
             return api_error(status.HTTP_403_FORBIDDEN, 'Permission denied.')
 
         share_type = request.data.get('share_type')
@@ -262,7 +284,7 @@ class DirSharedItemsEndpoint(APIView):
             return api_error(status.HTTP_400_BAD_REQUEST, 'share_type invalid.')
 
         permission = request.data.get('permission', 'r')
-        if permission not in ['r', 'rw']:
+        if permission not in ['r', 'rw', 'admin']:
             return api_error(status.HTTP_400_BAD_REQUEST, 'permission invalid.')
 
         result = {}
@@ -296,6 +318,13 @@ class DirSharedItemsEndpoint(APIView):
                     continue
 
                 try:
+                    is_admin = False
+                    if path == '/':
+                        SharePermission.objects.create_share_permission(repo_id, username, to_user, permission)
+                    if permission == 'admin':
+                        is_admin = True
+                        permission = 'rw'
+
                     if is_org_context(request):
                         org_id = request.user.org.org_id
                         if path == '/':
@@ -322,6 +351,8 @@ class DirSharedItemsEndpoint(APIView):
                         share_repo_to_user_successful.send(sender=None,
                                 from_user=username, to_user=to_user, repo=sub_repo)
 
+                    if is_admin:
+                        permission = 'admin'
                     result['success'].append({
                         "share_type": "user",
                         "user_info": {
@@ -417,19 +448,29 @@ class DirSharedItemsEndpoint(APIView):
         if seafile_api.get_dir_id_by_path(repo.id, path) is None:
             return api_error(status.HTTP_404_NOT_FOUND, 'Folder %s not found.' % path)
 
-        if username != self.get_repo_owner(request, repo_id):
-            return api_error(status.HTTP_403_FORBIDDEN, 'Permission denied.')
-
         shared_to_user, shared_to_group = self.handle_shared_to_args(request)
         if shared_to_user:
             shared_to = request.GET.get('username')
             if shared_to is None or not is_valid_username(shared_to):
                 return api_error(status.HTTP_400_BAD_REQUEST, 'Email %s invalid.' % shared_to)
 
+            if username != self.get_repo_owner(request, repo_id) and \
+               username not in SharePermission.objects.get_share_records(repo_id, username, shared_to):
+                return api_error(status.HTTP_403_FORBIDDEN, 'Permission denied.')
+        else:
+            if username != self.get_repo_owner(request, repo_id):
+                return api_error(status.HTTP_403_FORBIDDEN, 'Permission denied.')
+
+
+        if shared_to_user:
             # if user not found, permission will be None
             permission = seafile_api.check_permission_by_path(
                     repo_id, '/', shared_to)
 
+            if path == '/':
+                SharePermission.objects.delete_shared_admin_repos(repo_id, 
+                                                                  username, 
+                                                                  shared_to)
             if is_org_context(request):
                 org_id = request.user.org.org_id
                 if path == '/':

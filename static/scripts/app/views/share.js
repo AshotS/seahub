@@ -721,6 +721,7 @@ define([
                         emails_input.select2("val", "");
                         $('[value="rw"]', $perm).attr('selected', 'selected');
                         $('[value="r"]', $perm).removeAttr('selected');
+                        $('[value="admin"]', $perm).removeAttr('selected');
                         $error.addClass('hide');
                     }
                     if (data.failed.length > 0) {

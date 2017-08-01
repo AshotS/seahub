@@ -46,6 +46,7 @@ from seahub.avatar.templatetags.group_avatar_tags import api_grp_avatar_url, \
         grp_avatar
 from seahub.base.accounts import User
 from seahub.base.models import UserStarredFiles, DeviceToken
+from seahub.base.share_permission.models import SharePermission
 from seahub.base.templatetags.seahub_tags import email2nickname, \
     translate_seahub_time, translate_commit_desc_escape, \
     email2contact_email
@@ -487,6 +488,8 @@ class Repos(APIView):
                     nickname_dict[e] = email2nickname(e)
 
             shared_repos.sort(lambda x, y: cmp(y.last_modify, x.last_modify))
+            shared_repos_share_from = SharePermission.objects. \
+                    get_shared_repos_share_from_by_shared(email)
             for r in shared_repos:
                 r.password_need = is_passwd_set(r.repo_id, email)
                 repo = {
@@ -509,6 +512,11 @@ class Repos(APIView):
                     "head_commit_id": r.head_cmmt_id,
                     "version": r.version,
                 }
+                if r.repo_id in shared_repos_share_from.keys():
+                    repo['is_admin'] = True
+                    repo['share_from'] = shared_repos_share_from[r.repo_id]
+                else:
+                    repo['is_admin'] = False
                 repos_json.append(repo)
 
         if filter_by['group']:
