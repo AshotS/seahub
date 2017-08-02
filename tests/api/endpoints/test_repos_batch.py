@@ -193,3 +193,58 @@ class ReposBatchViewTest(BaseTestCase):
         }
         resp = self.client.post(self.url, data)
         self.assertEqual(403, resp.status_code)
+
+
+class ReposBatchCreateDirViewTest(BaseTestCase):
+
+    def setUp(self):
+        self.user_name = self.user.username
+        self.admin_name = self.admin.username
+        self.repo_id = self.repo.id
+        self.url = reverse('api-v2.1-repos-batch-create-dir')
+
+    def tearDown(self):
+        self.remove_repo()
+        self.remove_group()
+
+    def get_random_path(self):
+        return '/%s/%s/%s/' % (randstring(2), \
+                randstring(2), randstring(2))
+
+    def test_create_dir(self):
+
+        path_1 = self.get_random_path()
+        path_2 = self.get_random_path()
+        path_3 = self.get_random_path()
+
+        self.login_as(self.user)
+
+        data = {
+            'repo_id': self.repo_id,
+            'path': [path_1, path_2, path_3],
+        }
+        resp = self.client.post(self.url, data)
+        self.assertEqual(200, resp.status_code)
+
+        json_resp = json.loads(resp.content)
+        assert len(json_resp['success']) == 3
+        assert len(json_resp['failed']) == 0
+
+        assert seafile_api.get_dir_id_by_path(self.repo_id,
+                path_1) is not None
+        assert seafile_api.get_dir_id_by_path(self.repo_id,
+                path_2) is not None
+        assert seafile_api.get_dir_id_by_path(self.repo_id,
+                path_3) is not None
+
+    def test_create_dir_with_invalid_repo_permission(self):
+
+        # admin has NO permission for user's repo
+        self.login_as(self.admin)
+
+        data = {
+            'repo_id': self.repo_id,
+            'path': 'path',
+        }
+        resp = self.client.post(self.url, data)
+        self.assertEqual(403, resp.status_code)

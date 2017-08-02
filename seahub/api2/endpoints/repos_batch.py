@@ -13,12 +13,16 @@ from seaserv import seafile_api, ccnet_api
 from seahub.api2.authentication import TokenAuthentication
 from seahub.api2.throttling import UserRateThrottle
 from seahub.api2.utils import api_error
+
 from seahub.base.accounts import User
 from seahub.share.signals import share_repo_to_user_successful, \
-    share_repo_to_group_successful
-from seahub.utils import (is_org_context, send_perm_audit_msg)
+        share_repo_to_group_successful
+from seahub.utils import is_org_context, send_perm_audit_msg, \
+        normalize_dir_path
+from seahub.views import check_folder_permission
 
 logger = logging.getLogger(__name__)
+
 
 class ReposBatchView(APIView):
     authentication_classes = (TokenAuthentication, SessionAuthentication)
@@ -266,5 +270,87 @@ class ReposBatchView(APIView):
                             'repo_id': repo_id,
                             'error_msg': 'Internal Server Error'
                             })
+
+        return Response(result)
+
+
+class ReposBatchCreateDirView(APIView):
+
+    authentication_classes = (TokenAuthentication, SessionAuthentication)
+    permission_classes = (IsAuthenticated, )
+    throttle_classes = (UserRateThrottle, )
+
+    def post(self, request):
+        """ Multi create folders.
+
+        # TODO
+        Permission checking:
+        1. create: user with `rw` permission for current dir's parent dir;
+        """
+
+        # argument check
+        path_list = request.data.getlist('path', None)
+        if not path_list:
+            error_msg = 'path invalid.'
+            return api_error(status.HTTP_400_BAD_REQUEST, error_msg)
+
+        repo_id = request.data.get('repo_id', None)
+        if not repo_id:
+            error_msg = 'repo_id invalid.'
+            return api_error(status.HTTP_400_BAD_REQUEST, error_msg)
+
+        # resource check
+        repo = seafile_api.get_repo(repo_id)
+        if not repo:
+            error_msg = 'Library %s not found.' % repo_id
+            return api_error(status.HTTP_404_NOT_FOUND, error_msg)
+
+        # permission check
+        if check_folder_permission(request, repo_id, '/') != 'rw':
+            error_msg = 'Permission denied.'
+            return api_error(status.HTTP_403_FORBIDDEN, error_msg)
+
+        result = {}
+        result['failed'] = []
+        result['success'] = []
+        username = request.user.username
+
+        for path in path_list:
+
+            path = normalize_dir_path(path)
+
+            # check if path is valid
+            for obj_name in path.strip('/').split('/'):
+                try:
+                    is_valid_name = seafile_api.is_valid_filename('fake_repo_id',
+                            obj_name)
+                except Exception as e:
+                    logger.error(e)
+                    result['failed'].append({
+                        'path': path,
+                        'error_msg': 'Internal Server Error'
+                    })
+                    continue
+
+            if not is_valid_name:
+                result['failed'].append({
+                    'path': path,
+                    'error_msg': 'path invalid.'
+                })
+                continue
+
+            try:
+                seafile_api.mkdir_with_parents(repo_id, '/', path.strip('/'), username)
+            except Exception as e:
+                logger.error(e)
+                result['failed'].append({
+                    'path': path,
+                    'error_msg': 'Internal Server Error'
+                })
+                continue
+
+            result['success'].append({
+                'path': path,
+            })
 
         return Response(result)
